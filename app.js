@@ -110,8 +110,8 @@ function signInScreen() {
           try { google.accounts.oauth2.revoke(token, () => {}); } catch { /* ignore */ }
           token = null; tokenExpiry = 0; drive = null;
           return show(h('div', { class: 'card center' }, h('h1', {}, 'Inkwell'),
-            h('p', {}, 'This is a private journal, and that Google account doesn't have access.'),
-            h('p', { class: 'muted' }, 'You've been signed out. Nothing was read or saved.'),
+            h('p', {}, 'This is a private journal, and that Google account doesn’t have access.'),
+            h('p', { class: 'muted' }, 'You’ve been signed out. Nothing was read or saved.'),
             h('button', { onclick: signInScreen }, 'Back')));
         }
         afterSignIn();
