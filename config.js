@@ -6,4 +6,4 @@ export const GOOGLE_CLIENT_ID = '679964558856-foaac5dcqeua5djiqv584odaufoe13h9.a
 // so it doesn't reveal who you are. Leave empty to allow any account.
 // It's a courtesy lock that stops other people using this page as their own journal. Your entries are
 // protected regardless: by your Google sign-in plus your passphrase.
-export const OWNER_ACCOUNT_ID = '';
+export const OWNER_ACCOUNT_ID = '14310924213276912841';
