@@ -45,6 +45,12 @@ export class Drive {
     return files;
   }
 
+  /** The signed-in Google account's opaque Drive ID (not the email address). */
+  async accountId() {
+    const data = await (await this.request('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)')).json();
+    return data.user?.permissionId || '';
+  }
+
   async download(id) {
     return (await this.request(`${API}/${id}?alt=media`)).text();
   }

@@ -1,6 +1,6 @@
 import { createVault, unlockWithPassphrase, unlockWithRecoveryKey, encryptEntry, decryptEntry, WrongSecretError } from './crypto.js';
 import { Drive, VAULT_FILE, entryFileName, uidFromFileName } from './drive.js';
-import { GOOGLE_CLIENT_ID } from './config.js';
+import { GOOGLE_CLIENT_ID, OWNER_ACCOUNT_ID } from './config.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const MOODS = { 1: ['😞', 'Awful'], 2: ['😕', 'Bad'], 3: ['😐', 'Okay'], 4: ['🙂', 'Good'], 5: ['😄', 'Great'] };
@@ -105,6 +105,15 @@ function signInScreen() {
         });
         await getToken(true);
         drive = new Drive(getToken);
+        const accountId = await drive.accountId();
+        if (OWNER_ACCOUNT_ID && accountId !== OWNER_ACCOUNT_ID) {
+          try { google.accounts.oauth2.revoke(token, () => {}); } catch { /* ignore */ }
+          token = null; tokenExpiry = 0; drive = null;
+          return show(h('div', { class: 'card center' }, h('h1', {}, 'Inkwell'),
+            h('p', {}, 'This is a private journal, and that Google account doesn't have access.'),
+            h('p', { class: 'muted' }, 'You've been signed out. Nothing was read or saved.'),
+            h('button', { onclick: signInScreen }, 'Back')));
+        }
         afterSignIn();
       } catch (e) { err.textContent = errMsg(e); btn.disabled = false; }
     } }, 'Sign in with Google');
