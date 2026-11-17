@@ -39,6 +39,17 @@ const fmtDate = (ms) => new Date(ms).toLocaleDateString(undefined, { weekday: 'l
 const fmtShort = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const errMsg = (e) => (e && e.message ? e.message : String(e));
 
+// An entry's conversation: turns after the body ({ role: 'me' | 'ai', text, at, engine }). Older entries
+// have only a reflection, which counts as one ai turn.
+function threadOf(e) {
+  if (Array.isArray(e.turns) && e.turns.length) return e.turns;
+  return e.reflection ? [{ role: 'ai', text: e.reflection, at: e.updatedAt || 0, engine: null }] : [];
+}
+/** Everything the user wrote: the body plus their follow-ups, never the AI's replies. */
+function myWords(e) {
+  return [e.body || '', ...(e.turns || []).filter((t) => t.role === 'me').map((t) => t.text || '')].filter((t) => t.trim()).join('\n\n');
+}
+
 // ---- demo drive ----
 class DemoDrive {
   constructor() { this.files = new Map(); this.n = 0; }
@@ -267,7 +278,7 @@ async function startJournal() {
 }
 
 function snippetOf(e) {
-  const lines = (e.body || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  const lines = myWords(e).split('\n').map((s) => s.trim()).filter(Boolean);
   return { title: e.title?.trim() || lines[0] || 'Untitled', snip: (e.title?.trim() ? lines : lines.slice(1)).join(' ').slice(0, 240) };
 }
 
@@ -275,7 +286,7 @@ function listScreen(note = '') {
   cur = null;
   const q = search.trim().toLowerCase();
   const items = [...entries.values()]
-    .filter((e) => !q || (e.title || '').toLowerCase().includes(q) || (e.body || '').toLowerCase().includes(q))
+    .filter((e) => !q || (e.title || '').toLowerCase().includes(q) || myWords(e).toLowerCase().includes(q))
     .sort((a, b) => b.createdAt - a.createdAt);
   const status = h('span', { class: 'status', role: 'status' }, note);
   const searchIn = h('input', { type: 'search', id: 'q', value: search, placeholder: 'Search entries', 'aria-label': 'Search entries',
@@ -284,7 +295,7 @@ function listScreen(note = '') {
   function renderList() {
     const qq = search.trim().toLowerCase();
     const its = [...entries.values()]
-      .filter((e) => !qq || (e.title || '').toLowerCase().includes(qq) || (e.body || '').toLowerCase().includes(qq))
+      .filter((e) => !qq || (e.title || '').toLowerCase().includes(qq) || myWords(e).toLowerCase().includes(qq))
       .sort((a, b) => b.createdAt - a.createdAt);
     listBox.replaceChildren();
     if (!its.length) {
@@ -323,18 +334,33 @@ function listScreen(note = '') {
 function editorScreen(uid) {
   const existing = uid ? entries.get(uid) : null;
   const now = Date.now();
-  const e0 = existing || { uid: crypto.randomUUID(), title: '', body: '', mood: null, prompt: null, reflection: null, createdAt: now, updatedAt: now, deleted: false };
-  cur = { e: { ...e0 }, fileId: meta.get(e0.uid)?.fileId || null, dirty: false, timer: null, queue: Promise.resolve(), failed: false };
+  const e0 = existing || { uid: crypto.randomUUID(), title: '', body: '', mood: null, prompt: null, reflection: null, turns: [], createdAt: now, updatedAt: now, deleted: false };
+  cur = { e: { ...e0, turns: threadOf(e0).map((t) => ({ ...t })) }, fileId: meta.get(e0.uid)?.fileId || null, dirty: false, timer: null, queue: Promise.resolve(), failed: false };
   const c = cur;
 
   const status = h('span', { class: 'status', role: 'status', 'aria-live': 'polite' });
   const retry = h('button', { class: 'link', hidden: true, onclick: () => save() }, 'Retry');
   const setStatus = (t, showRetry = false) => { status.textContent = t; retry.hidden = !showRetry; };
 
-  const title = h('input', { type: 'text', class: 'title-in', 'aria-label': 'Title', placeholder: 'Title', value: c.e.title, maxlength: '300' });
-  const body = h('textarea', { class: 'body', 'aria-label': 'Entry', placeholder: 'Start writing…' });
+  const title = h('input', { type: 'text', class: 'title-in', 'aria-label': 'Title', placeholder: 'Title', value: c.e.title, maxlength: '300', autocapitalize: 'sentences' });
+  const body = h('textarea', { class: 'body', 'aria-label': 'Entry', placeholder: 'Start writing…', autocapitalize: 'sentences' });
   body.value = c.e.body;
   const fit = () => { body.style.height = 'auto'; body.style.height = Math.max(body.scrollHeight, window.innerHeight * 0.5) + 'px'; };
+  const fitTurn = (t) => { t.style.height = 'auto'; t.style.height = Math.max(t.scrollHeight, 96) + 'px'; };
+
+  // After an ai reply there is always a field to keep writing in; blank ones are dropped when saving.
+  if (c.e.turns.length && c.e.turns[c.e.turns.length - 1].role === 'ai') c.e.turns.push({ role: 'me', text: '', at: Date.now(), engine: null });
+  const turnEls = c.e.turns.map((t) => {
+    if (t.role === 'ai') {
+      return h('div', { class: 'reflection' },
+        h('strong', {}, t.engine === 'ON_DEVICE' ? 'Written on your phone' : t.engine === 'CLAUDE' ? 'Written by Claude' : 'Reflection'),
+        h('div', {}, t.text));
+    }
+    const ta = h('textarea', { class: 'body turn', 'aria-label': 'Add more', placeholder: 'Add more…', autocapitalize: 'sentences' });
+    ta.value = t.text;
+    ta.addEventListener('input', () => { t.text = ta.value; fitTurn(ta); touch(); });
+    return ta;
+  });
 
   const moodBtns = Object.entries(MOODS).map(([n, [emo, label]]) => h('button', {
     type: 'button', 'aria-label': label, title: label, 'aria-pressed': String(c.e.mood === Number(n)),
@@ -353,10 +379,11 @@ function editorScreen(uid) {
     c.queue = c.queue.then(async () => {
       if (!c.dirty) return;
       c.e.title = title.value; c.e.body = body.value;
-      if (!c.fileId && !c.e.title.trim() && !c.e.body.trim()) { c.dirty = false; setStatus(''); return; }
+      const turns = c.e.turns.filter((t) => t.role !== 'me' || t.text.trim()).map((t) => ({ ...t }));
+      if (!c.fileId && !c.e.title.trim() && !c.e.body.trim() && !turns.length) { c.dirty = false; setStatus(''); return; }
       c.dirty = false; setStatus('Saving…');
       try {
-        const snapshot = { ...c.e, updatedAt: Date.now() };
+        const snapshot = { ...c.e, turns, reflection: turns.length ? null : c.e.reflection, updatedAt: Date.now() };
         const text = await encryptEntry(dek, snapshot);
         c.fileId = await drive.put(entryFileName(snapshot.uid), text, { updatedAt: String(snapshot.updatedAt), deleted: '0' }, c.fileId);
         c.e.updatedAt = snapshot.updatedAt;
@@ -384,7 +411,7 @@ function editorScreen(uid) {
         try {
           await c.queue;
           if (c.fileId) {
-            const t = { uid: c.e.uid, title: '', body: '', mood: null, prompt: null, reflection: null, createdAt: c.e.createdAt, updatedAt: Date.now(), deleted: true };
+            const t = { uid: c.e.uid, title: '', body: '', mood: null, prompt: null, reflection: null, turns: [], createdAt: c.e.createdAt, updatedAt: Date.now(), deleted: true };
             await drive.put(entryFileName(t.uid), await encryptEntry(dek, t), { updatedAt: String(t.updatedAt), deleted: '1' }, c.fileId);
             meta.set(t.uid, { fileId: c.fileId, updatedAt: t.updatedAt });
           }
@@ -401,9 +428,10 @@ function editorScreen(uid) {
     title,
     c.e.prompt ? h('p', { class: 'prompt' }, c.e.prompt) : null,
     body,
-    c.e.reflection ? h('div', { class: 'reflection' }, h('strong', {}, 'Reflection'), h('div', {}, c.e.reflection)) : null,
+    ...turnEls,
     dlg);
   fit();
+  turnEls.forEach((el) => { if (el.tagName === 'TEXTAREA') fitTurn(el); });
   body.focus();
   body.setSelectionRange(body.value.length, body.value.length);
 }

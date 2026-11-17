@@ -49,9 +49,13 @@
   <ul>
     <li><strong>On-device AI:</strong> daily prompts and reflections can be written by Gemini Nano, which runs on your
       phone. Your entries are not sent anywhere for this.</li>
-    <li><strong>Claude (optional):</strong> if you add your own Anthropic API key, the weekly wrap-up and longer
-      insights send the relevant entries to Anthropic's API to generate a response. Anthropic's privacy policy
-      covers that processing. Nothing is sent to Claude unless you add a key.</li>
+    <li><strong>Claude (optional):</strong> if you add your own Anthropic API key, the weekly wrap-up sends that
+      week's entries and daily check-ins to Anthropic's API, along with your short pattern notes, which Claude
+      rewrites each week and the app stores on your phone. Longer insights and questions send the relevant entries,
+      check-ins and pattern notes, and reflections do too if the on-device model isn't available. Anthropic's privacy
+      policy covers that processing. Nothing is sent to Claude unless you add a key.</li>
+    <li><strong>Check-ins and pattern notes:</strong> they are synced to your Drive app folder, encrypted like your
+      entries, and are not shown on the web page.</li>
   </ul>
 
   <h2>Deleting your data</h2>
