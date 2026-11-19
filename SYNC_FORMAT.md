@@ -10,7 +10,8 @@ from the Drive UI, and only Inkwell's OAuth client can read it.
 |---|---|
 | `vault.json` | The data key, wrapped (see below) |
 | `entry-<uid>.json` | One encrypted entry. `appProperties`: `updatedAt` (ms, as a string), `deleted` (`"0"`/`"1"`) |
-| `day-<yyyy-MM-dd>.json` | One encrypted daily check-in. `appProperties`: `updatedAt` (ms, as a string), `kind` (`"day"`) |
+| `day-<yyyy-MM-dd>.json` | One encrypted daily check-in (the older format, still synced). `appProperties`: `updatedAt` (ms, as a string), `kind` (`"day"`) |
+| `log-<yyyy-MM-dd>.json` | One encrypted quick log day. `appProperties`: `updatedAt` (ms, as a string), `kind` (`"log"`) |
 | `pattern-notes.json` | The encrypted pattern notes (one file). `appProperties`: `updatedAt` (ms, as a string), `kind` (`"notes"`) |
 
 `appProperties` are plaintext, so a client can tell which entries changed without
@@ -54,7 +55,7 @@ entry keep `turns` exactly as they found it. `reflection` is the older single-re
 field: an entry with no `turns` but a `reflection` is shown as one `ai` turn, and
 once the thread is edited the reflection is moved into `turns` and set to `null`.
 
-## Daily check-ins
+## Daily check-ins (older format)
 
 There is one `day-<yyyy-MM-dd>.json` file per calendar day, using the same data key
 and the same envelope as entries (`{ "v": 1, "iv", "ct" }`). The AAD is
@@ -76,12 +77,44 @@ are omitted, so "not recorded" differs from "no". `level` is an index (caffeine:
 24-hour `"HH:mm"` strings, sorted. Clients keep tracker ids they don't know.
 Day files have no tombstones; the higher `updatedAt` wins, as for entries.
 
-The web page never downloads or decrypts `day-*` files; check-ins are only shown in the Android app.
+The app replaced the daily check-in with the quick log (below) but still syncs old `day-*` files unchanged. The web page never downloads or decrypts `day-*` files; check-ins are only shown in the Android app.
+
+## Quick log
+
+The quick log is a list of raw, timestamped events ("Coffee at 9:12", "Brain fog: moderate
+at 14:30") logged from the home screen widget or the app. There is one
+`log-<yyyy-MM-dd>.json` file per **local calendar day** (the phone's time zone when the
+event happened), using the same data key and envelope as entries
+(`{ "v": 1, "iv", "ct" }`). The AAD is `inkwell-log:<yyyy-MM-dd>`. The `appProperties`
+`updatedAt` is the largest event `updatedAt` in the file, in ms as a string. The decrypted
+JSON is:
+
+```json
+{ "date": "2026-11-17",
+  "events": [
+    { "id": "<uuid>", "item": "caffeine", "option": "coffee",
+      "at": 1763391120000, "updatedAt": 1763391120000, "deleted": false } ] }
+```
+
+`at` is when the event happened and `updatedAt` is when that event last changed (both
+epoch ms). `item` and `option` are ids from the app's catalog; clients keep ids they
+don't know. The file holds every event, tombstones included, whose `at` falls in that day.
+
+**Merge rule.** Events are merged one by one by `id`, not file by file: the higher
+`updatedAt` wins, and on a tie a tombstone wins. A deletion sets `deleted: true` and
+the event stays in the file as a tombstone; tombstones are kept and synced, never
+dropped. The result is the union of the ids on both sides. An event can be filed under
+another date (a time zone change or an edited time), so clients dedupe by `id` across
+days. A client looks at a day when Drive's `updatedAt` differs from its own, downloads
+and merges it, and writes the file back only if the merged content differs.
+
+The web page never downloads or decrypts `log-*` files; the quick log is only shown in
+the Android app.
 
 ## Pattern notes
 
 `pattern-notes.json` is the journal's running memory: a short text Claude rewrites each
-week from the entries and check-ins. There is exactly one file. It uses the same data key
+week from the entries and the quick log. There is exactly one file. It uses the same data key
 and envelope as entries (`{ "v": 1, "iv", "ct" }`), with AAD `inkwell-pattern-notes`. The
 decrypted JSON is:
 
